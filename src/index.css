@@ -1,0 +1,34 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg: #F2F6F6;
+    --surface: #FFFFFF;
+    --surface-2: #E9F0F0;
+    --surface-3: #DDE8E8;
+    --ink: #0F262A;
+    --ink-2: #4C666A;
+    --ink-3: #7A9296;
+    --line: #D2E0E0;
+    --line-strong: #B6CBCB;
+    --accent: #0B6E78;
+    --accent-ink: #FFFFFF;
+    --accent-soft: #DBEDEE;
+    --good: #0F7A55;
+    --warn: #9A6410;
+    --warn-soft: #F7EBD6;
+    --crit: #A9382A;
+    --crit-soft: #F6E1DE;
+    --s-mp: #2F62B8;
+    --s-log: #C4671C;
+    --s-luc: #0F8A6E;
+  }
+
+  body {
+    background-color: var(--bg);
+    color: var(--ink);
+    font-family: 'Archivo', sans-serif;
+  }
+}
