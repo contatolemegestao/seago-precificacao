@@ -67,7 +67,7 @@ export async function carregarDados(): Promise<{
         id: paramData.id,
         kgCaixa: Number(paramData.kg_caixa),
         enxarqueKg: Number(paramData.enxarque_kg),
-        aliquota: Number(paramData.aliquota_imposto),
+        porCarga: {},
         atualizadoEm: paramData.updated_at
       } : PARAMETROS_PADRAO;
 
@@ -135,22 +135,19 @@ export async function sincronizarComSupabase(
     if (parametros.id) {
       await supabase.from('parametros').update({
         kg_caixa: parametros.kgCaixa,
-        enxarque_kg: parametros.enxarqueKg,
-        aliquota_imposto: parametros.aliquota
+        enxarque_kg: parametros.enxarqueKg
       }).eq('id', parametros.id);
     } else {
       const { data: p } = await supabase.from('parametros').select('id').limit(1).maybeSingle();
       if (p) {
         await supabase.from('parametros').update({
           kg_caixa: parametros.kgCaixa,
-          enxarque_kg: parametros.enxarqueKg,
-          aliquota_imposto: parametros.aliquota
+          enxarque_kg: parametros.enxarqueKg
         }).eq('id', p.id);
       } else {
         await supabase.from('parametros').insert({
           kg_caixa: parametros.kgCaixa,
-          enxarque_kg: parametros.enxarqueKg,
-          aliquota_imposto: parametros.aliquota
+          enxarque_kg: parametros.enxarqueKg
         });
       }
     }

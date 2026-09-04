@@ -1,6 +1,6 @@
 import React from 'react';
 import { ResultadoCalculo, Parametros } from '../types';
-import { nf, brl0, brl, pct } from '../lib/calculations';
+import { nf, brl0, brl, pct, getParametrosDaCarga } from '../lib/calculations';
 
 interface EnxarqueComparisonProps {
   resultado: ResultadoCalculo;
@@ -15,11 +15,15 @@ export const EnxarqueComparison: React.FC<EnxarqueComparisonProps> = ({
   const pctEnx = resultado.kgComprado ? resultado.enxPadrao / resultado.kgComprado : 0;
   const semEnx = resultado.lucroOp - resultado.receitaEnx;
 
+  const paramCarga = resultado.carga === 'TOTAL'
+    ? { kgCaixa: parametros.kgCaixa || 16, enxarqueKg: parametros.enxarqueKg ?? 1 }
+    : getParametrosDaCarga(Number(resultado.carga), parametros);
+
   return (
     <div className="space-y-4">
       <p className="text-[13.5px] text-[#4C666A]">
-        Cada caixa leva <b>{nf(parametros.kgCaixa, 0)} kg</b> de camarão e ganha{' '}
-        <b>{nf(parametros.enxarqueKg, 0)} kg</b> de enxarque no caminho. A quantidade vendida {onde} é a comprada mais esse ganho — <b>{pct(pctEnx)}</b> a mais.
+        Cada caixa leva <b>{nf(paramCarga.kgCaixa, 0)} kg</b> de camarão e ganha{' '}
+        <b>{nf(paramCarga.enxarqueKg, 0)} kg</b> de enxarque no caminho. A quantidade vendida {onde} é a comprada mais esse ganho — <b>{pct(pctEnx)}</b> a mais.
       </p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
@@ -58,7 +62,7 @@ export const EnxarqueComparison: React.FC<EnxarqueComparisonProps> = ({
                 </small>
               </span>
               <span className="text-[13.5px] font-mono font-semibold text-[#0F262A]">
-                {nf(parametros.kgCaixa, 0)} kg
+                {nf(paramCarga.kgCaixa, 0)} kg
               </span>
             </div>
 
@@ -66,7 +70,7 @@ export const EnxarqueComparison: React.FC<EnxarqueComparisonProps> = ({
               <span className="text-[13px] text-[#4C666A] font-medium">
                 (+) Enxarque padrão
                 <small className="block text-[11.5px] text-[#7A9296] font-normal">
-                  {nf(resultado.caixas, 1)} caixas × {nf(parametros.enxarqueKg, 0)} kg
+                  {nf(resultado.caixas, 1)} caixas × {nf(paramCarga.enxarqueKg, 0)} kg
                 </small>
               </span>
               <span className="text-[13.5px] font-mono font-semibold text-[#0F262A]">

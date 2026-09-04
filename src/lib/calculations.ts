@@ -1,4 +1,4 @@
-import { Lote, CifLancamento, Parametros, ResultadoCalculo, LoteCalculado } from '../types';
+import { Lote, CifLancamento, Parametros, ResultadoCalculo, LoteCalculado, ParametroCargaItem } from '../types';
 
 export const nf = (n: number | null | undefined, d = 2): string => {
   const val = typeof n === 'number' && isFinite(n) ? n : 0;
@@ -39,16 +39,25 @@ export function getCargasIncompletas(lotes: Lote[], cif: CifLancamento[]): numbe
   return getCargas(lotes, cif).filter(c => !lotes.some(l => Number(l.carga) === c));
 }
 
+export function getParametrosDaCarga(cargaNum: number, parametros: Parametros): ParametroCargaItem {
+  if (parametros.porCarga && parametros.porCarga[cargaNum]) {
+    return {
+      kgCaixa: Number(parametros.porCarga[cargaNum].kgCaixa) || 16,
+      enxarqueKg: parametros.porCarga[cargaNum].enxarqueKg ?? 1
+    };
+  }
+  return {
+    kgCaixa: Number(parametros.kgCaixa) || 16,
+    enxarqueKg: parametros.enxarqueKg ?? 1
+  };
+}
+
 export function calcularResultado(
   carga: number | 'TOTAL',
   lotesTotal: Lote[],
   cifTotal: CifLancamento[],
   parametros: Parametros
 ): ResultadoCalculo {
-  const kgCaixa = parametros.kgCaixa || 16;
-  const enxKg = parametros.enxarqueKg ?? 1;
-  const aliq = (parametros.aliquota || 0) / 100;
-
   const isTotal = carga === 'TOTAL';
   const cargasAlvo = new Set<number>(
     isTotal ? getCargasCompletas(lotesTotal, cifTotal) : [Number(carga)]
@@ -57,6 +66,10 @@ export function calcularResultado(
   const lotesFiltrados: LoteCalculado[] = lotesTotal
     .filter(x => cargasAlvo.has(Number(x.carga)))
     .map(l => {
+      const paramCarga = getParametrosDaCarga(Number(l.carga), parametros);
+      const kgCaixa = paramCarga.kgCaixa;
+      const enxKg = paramCarga.enxarqueKg;
+
       const qc = Number(l.qtd_comprada) || 0;
       const qm = Number(l.qtd_final) || 0;
       const pv = Number(l.valor_venda_kg) || 0;
@@ -102,8 +115,8 @@ export function calcularResultado(
   const cifLiquido = totalCif - receitaEnx;
   const logPorKg = kgVendido ? cifLiquido / kgVendido : 0;
 
-  const imposto = faturamento * aliq;
-  const lucroOp = faturamento - custoMp - totalCif - imposto;
+  // Sem incidência de imposto
+  const lucroOp = faturamento - custoMp - totalCif;
   const investido = custoMp + totalCif;
 
   return {
@@ -122,14 +135,13 @@ export function calcularResultado(
     kgVendido,
     kgMedido,
     faturamento,
-    imposto,
     lucroOp,
     investido,
     cifPorKg: kgComprado ? totalCif / kgComprado : 0,
     cifPorKgVend: kgVendido ? totalCif / kgVendido : 0,
     logPorKg,
     mpPorKg: kgComprado ? custoMp / kgComprado : 0,
-    custoPorKg: kgComprado ? investido / kgComprado : 0,
+    custoPorKg: kgVendido ? investido / kgVendido : 0, // Custo R$/kg agora sobre o KG VENDIDO
     precoMedio: kgVendido ? faturamento / kgVendido : 0,
     margem: faturamento ? lucroOp / faturamento : 0,
     lucroKg: kgVendido ? lucroOp / kgVendido : 0,

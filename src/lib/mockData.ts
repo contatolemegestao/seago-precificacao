@@ -20,7 +20,7 @@ export const TIPOS_CIF = [
 export const PARAMETROS_PADRAO: Parametros = {
   kgCaixa: 16,
   enxarqueKg: 1,
-  aliquota: 0,
+  porCarga: {}
 };
 
 export const DADOS_INICIAIS: { lotes: Lote[]; cif: CifLancamento[] } = {

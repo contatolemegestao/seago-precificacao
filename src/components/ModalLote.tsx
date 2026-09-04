@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Lote, Parametros } from '../types';
-import { hoje, nf, brl0 } from '../lib/calculations';
+import { hoje, nf, brl0, getParametrosDaCarga } from '../lib/calculations';
 import { X, Trash2 } from 'lucide-react';
 
 interface ModalLoteProps {
@@ -77,9 +77,10 @@ export const ModalLote: React.FC<ModalLoteProps> = ({
   const qm = Number(formData.qtd_final) || 0;
   const pc = Number(formData.valor_compra_kg) || 0;
   const pv = Number(formData.valor_venda_kg) || 0;
-  const kgCaixa = parametros.kgCaixa || 16;
+  const paramCarga = getParametrosDaCarga(Number(formData.carga) || 1, parametros);
+  const kgCaixa = paramCarga.kgCaixa;
   const caixas = kgCaixa > 0 ? qc / kgCaixa : 0;
-  const enx = caixas * (parametros.enxarqueKg ?? 1);
+  const enx = caixas * paramCarga.enxarqueKg;
   const qVend = qc + enx;
   const custoMp = pc * qc;
   const faturamento = pv * qVend;

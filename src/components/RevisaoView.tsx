@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Lote, CifLancamento, Parametros, ResultadoCalculo } from '../types';
+import { Lote, CifLancamento, Parametros } from '../types';
 import {
   calcularResultado,
   getCargas,
@@ -171,8 +171,8 @@ export const RevisaoView: React.FC<RevisaoViewProps> = ({
               </h2>
             </div>
             <div className="p-5 space-y-5">
-              <CompositionBar resultado={r} aliquota={parametros.aliquota} />
-              <CascataDRE resultado={r} aliquota={parametros.aliquota} />
+              <CompositionBar resultado={r} />
+              <CascataDRE resultado={r} />
             </div>
           </div>
 
@@ -356,7 +356,7 @@ export const RevisaoView: React.FC<RevisaoViewProps> = ({
           <div className="bg-white border border-[#D2E0E0] rounded-xl shadow-sm overflow-hidden">
             <div className="px-5 py-4 border-b border-[#D2E0E0] bg-white">
               <h2 className="text-[12px] uppercase tracking-wider font-semibold text-[#7A9296]">
-                Comparativo Geral entre Cargas
+                Comparativo Geral entre Cargas (Custo Total por KG Vendido)
               </h2>
             </div>
             <div className="overflow-x-auto">
@@ -368,7 +368,7 @@ export const RevisaoView: React.FC<RevisaoViewProps> = ({
                     <th className="text-right py-3 px-3.5 font-semibold">Faturamento</th>
                     <th className="text-right py-3 px-3.5 font-semibold">Camarão</th>
                     <th className="text-right py-3 px-3.5 font-semibold">CIF</th>
-                    <th className="text-right py-3 px-3.5 font-semibold">Custo R$/kg</th>
+                    <th className="text-right py-3 px-3.5 font-semibold text-[#0B6E78]">Custo R$/kg (Vendido)</th>
                     <th className="text-right py-3 px-3.5 font-semibold">Lucro Op.</th>
                     <th className="text-right py-3 px-3.5 font-semibold">Margem</th>
                   </tr>
@@ -402,7 +402,9 @@ export const RevisaoView: React.FC<RevisaoViewProps> = ({
                         <td className="text-right py-2.5 px-3.5 font-mono">{brl0(rc.faturamento)}</td>
                         <td className="text-right py-2.5 px-3.5 font-mono">{brl0(rc.custoMp)}</td>
                         <td className="text-right py-2.5 px-3.5 font-mono">{brl0(rc.cifTotal)}</td>
-                        <td className="text-right py-2.5 px-3.5 font-mono">{brl(rc.custoPorKg)}</td>
+                        <td className="text-right py-2.5 px-3.5 font-mono font-semibold text-[#0B6E78]">
+                          {brl(rc.custoPorKg)}
+                        </td>
                         <td className={`text-right py-2.5 px-3.5 font-mono font-semibold ${rc.lucroOp >= 0 ? 'text-[#0F7A55]' : 'text-[#A9382A]'}`}>
                           {brl0(rc.lucroOp)}
                         </td>
@@ -431,11 +433,11 @@ export const RevisaoView: React.FC<RevisaoViewProps> = ({
                         <td className="text-right py-3 px-3.5 font-mono">{brl0(rt.faturamento)}</td>
                         <td className="text-right py-3 px-3.5 font-mono">{brl0(rt.custoMp)}</td>
                         <td className="text-right py-3 px-3.5 font-mono">{brl0(rt.cifTotal)}</td>
-                        <td className="text-right py-3 px-3.5 font-mono">{brl(rt.custoPorKg)}</td>
-                        <td className={`text-right py-3 px-3.5 font-mono ${rt.lucroOp >= 0 ? 'text-[#0F7A55]' : 'text-[#A9382A]'}`}>
+                        <td className="text-right py-3 px-3.5 font-mono text-[#0B6E78]">{brl(rt.custoPorKg)}</td>
+                        <td className={`text-right py-3.5 px-3.5 font-mono ${rt.lucroOp >= 0 ? 'text-[#0F7A55]' : 'text-[#A9382A]'}`}>
                           {brl0(rt.lucroOp)}
                         </td>
-                        <td className={`text-right py-3 px-3.5 font-mono ${rt.lucroOp >= 0 ? 'text-[#0F7A55]' : 'text-[#A9382A]'}`}>
+                        <td className={`text-right py-3.5 px-3.5 font-mono ${rt.lucroOp >= 0 ? 'text-[#0F7A55]' : 'text-[#A9382A]'}`}>
                           {pct(rt.margem)}
                         </td>
                       </tr>

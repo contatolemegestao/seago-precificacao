@@ -4,10 +4,9 @@ import { brl, nf, pct } from '../lib/calculations';
 
 interface CascataDREProps {
   resultado: ResultadoCalculo;
-  aliquota: number;
 }
 
-export const CascataDRE: React.FC<CascataDREProps> = ({ resultado, aliquota }) => {
+export const CascataDRE: React.FC<CascataDREProps> = ({ resultado }) => {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-[13.5px] border-collapse">
@@ -47,20 +46,6 @@ export const CascataDRE: React.FC<CascataDREProps> = ({ resultado, aliquota }) =
               {brl(-resultado.cifTotal)}
             </td>
           </tr>
-
-          {aliquota > 0 && (
-            <tr className="border-b border-dashed border-[#D2E0E0]">
-              <td className="text-left py-3 px-3.5 font-medium text-[#0F262A]">
-                (−) Imposto
-                <div className="text-[12px] font-normal text-[#4C666A]">
-                  {pct(aliquota / 100)} sobre o faturamento
-                </div>
-              </td>
-              <td className="text-right py-3 px-3.5 font-mono text-[#A9382A]">
-                {brl(-resultado.imposto)}
-              </td>
-            </tr>
-          )}
 
           <tr className="border-t-2 border-[#B6CBCB] font-bold text-[15px] bg-[#E9F0F0]/50">
             <td className="text-left py-3.5 px-3.5 text-[#0F262A]">

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Lote, Parametros } from '../types';
-import { dataLonga, nf, brl0 } from '../lib/calculations';
+import { dataLonga, nf, brl0, getParametrosDaCarga } from '../lib/calculations';
 import { Plus } from 'lucide-react';
 
 interface MateriaPrimaViewProps {
@@ -91,11 +91,12 @@ export const MateriaPrimaView: React.FC<MateriaPrimaViewProps> = ({
                         </td>
                       </tr>
                       {g.regs.map(({ lote, index }) => {
+                        const paramCarga = getParametrosDaCarga(Number(lote.carga), parametros);
                         const qc = Number(lote.qtd_comprada) || 0;
                         const pc = Number(lote.valor_compra_kg) || 0;
                         const custo = pc * qc;
-                        const caixas = kgCaixa > 0 ? qc / kgCaixa : 0;
-                        const qVend = qc + caixas * enxKg;
+                        const caixas = paramCarga.kgCaixa > 0 ? qc / paramCarga.kgCaixa : 0;
+                        const qVend = qc + caixas * paramCarga.enxarqueKg;
 
                         return (
                           <tr

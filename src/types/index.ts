@@ -32,11 +32,16 @@ export interface CifLancamento {
   valor: number;
 }
 
+export interface ParametroCargaItem {
+  kgCaixa: number;
+  enxarqueKg: number;
+}
+
 export interface Parametros {
   id?: string;
   kgCaixa: number;
   enxarqueKg: number;
-  aliquota: number;
+  porCarga?: Record<number, ParametroCargaItem>;
   atualizadoEm?: string;
 }
 
@@ -71,14 +76,13 @@ export interface ResultadoCalculo {
   kgVendido: number;
   kgMedido: number;
   faturamento: number;
-  imposto: number;
   lucroOp: number;
   investido: number;
   cifPorKg: number;
   cifPorKgVend: number;
   logPorKg: number;
   mpPorKg: number;
-  custoPorKg: number;
+  custoPorKg: number; // Agora calculado sobre o KG Vendido
   precoMedio: number;
   margem: number;
   lucroKg: number;

@@ -4,19 +4,14 @@ import { brl0, nf } from '../lib/calculations';
 
 interface CompositionBarProps {
   resultado: ResultadoCalculo;
-  aliquota: number;
 }
 
-export const CompositionBar: React.FC<CompositionBarProps> = ({ resultado, aliquota }) => {
+export const CompositionBar: React.FC<CompositionBarProps> = ({ resultado }) => {
   const partes = [
     { nome: 'Custo do camarão', val: resultado.custoMp, cor: '#2F62B8' },
     { nome: 'CIF (Logística)', val: resultado.cifTotal, cor: '#C4671C' },
     { nome: 'Lucro operacional', val: resultado.lucroOp, cor: '#0F8A6E' }
   ];
-
-  if (aliquota > 0) {
-    partes.splice(2, 0, { nome: 'Imposto', val: resultado.imposto, cor: '#7A9296' });
-  }
 
   const base = partes.reduce((a, p) => a + Math.abs(p.val), 0) || 1;
 

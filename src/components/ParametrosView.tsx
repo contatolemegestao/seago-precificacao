@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Parametros, Lote, CifLancamento } from '../types';
-import { dataLonga, hoje } from '../lib/calculations';
-import { Download, Upload, RotateCcw, CheckCircle, AlertCircle, Info } from 'lucide-react';
+import { dataLonga, hoje, getCargas, getParametrosDaCarga } from '../lib/calculations';
+import { Download, Upload, RotateCcw, CheckCircle, AlertCircle, Info, Plus } from 'lucide-react';
 import { DADOS_INICIAIS, PARAMETROS_PADRAO } from '../lib/mockData';
 
 interface ParametrosViewProps {
@@ -23,9 +23,10 @@ export const ParametrosView: React.FC<ParametrosViewProps> = ({
 }) => {
   const [mensagem, setMensagem] = useState<{ texto: string; tipo: 'ok' | 'erro' } | null>(null);
   const [confirmandoReset, setConfirmandoReset] = useState(false);
+  const [novaCargaNum, setNovaCargaNum] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const cargasUnicas = Array.from(new Set([...lotes.map((l) => l.carga), ...cif.map((c) => c.carga)]));
+  const cargasUnicas = getCargas(lotes, cif);
 
   const mostrarMensagem = (texto: string, tipo: 'ok' | 'erro') => {
     setMensagem({ texto, tipo });
@@ -35,7 +36,7 @@ export const ParametrosView: React.FC<ParametrosViewProps> = ({
   const handleExportar = () => {
     const payload = {
       formato: 'seago-calculadora',
-      versao: 1,
+      versao: 2,
       exportadoEm: hoje(),
       parametros,
       lotes,
@@ -78,33 +79,73 @@ export const ParametrosView: React.FC<ParametrosViewProps> = ({
     reader.readAsText(file);
   };
 
+  const handleAtualizarParametroCarga = (cargaNum: number, campo: 'kgCaixa' | 'enxarqueKg', valor: number) => {
+    const porCargaAtual = { ...(parametros.porCarga || {}) };
+    const cargaConfig = porCargaAtual[cargaNum] || {
+      kgCaixa: parametros.kgCaixa || 16,
+      enxarqueKg: parametros.enxarqueKg ?? 1
+    };
+
+    porCargaAtual[cargaNum] = {
+      ...cargaConfig,
+      [campo]: valor
+    };
+
+    onAtualizarParametros({ porCarga: porCargaAtual });
+  };
+
+  const handleAdicionarCargaParam = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cNum = Number(novaCargaNum);
+    if (!cNum || cNum < 1) {
+      mostrarMensagem('Informe um número de carga válido.', 'erro');
+      return;
+    }
+
+    const porCargaAtual = { ...(parametros.porCarga || {}) };
+    if (!porCargaAtual[cNum]) {
+      porCargaAtual[cNum] = {
+        kgCaixa: parametros.kgCaixa || 16,
+        enxarqueKg: parametros.enxarqueKg ?? 1
+      };
+      onAtualizarParametros({ porCarga: porCargaAtual });
+      setNovaCargaNum('');
+      mostrarMensagem(`Parâmetros da Carga ${cNum} adicionados.`, 'ok');
+    } else {
+      mostrarMensagem(`A Carga ${cNum} já está na lista.`, 'erro');
+    }
+  };
+
   const divergencias = [
     {
-      titulo: 'Comissão de vendedor calculada fora do cadastro',
+      titulo: 'Custo por kg calculado sobre o KG Vendido',
       descricao:
-        'Na Revisão da planilha original ela era digitada à mão (R$ 6.192 na carga 5), enquanto o cadastro CIF trazia zero. Aqui ela vem sempre do lançamento do CIF.'
+        'O custo total unitário da operação agora divide o investimento total pela quantidade efetivamente vendida (com enxarque), refletindo a margem real de venda.'
     },
     {
-      titulo: 'Quantidade vendida usava duas réguas',
+      titulo: 'Parâmetros flexíveis por Carga',
       descricao:
-        'A planilha multiplicava o preço por 12.384,5 kg em uma linha e pela quantidade final nas outras. Agora utiliza-se rigorosamente a quantidade final enxarcada padrão.'
+        'Permite configurar regras de kg por caixa e enxarque específicas para cada carga individualmente, respeitando variações operacionais de cada viagem.'
     },
     {
-      titulo: 'Custo por kg somado ao custo total',
+      titulo: 'Remoção de alíquota de imposto',
       descricao:
-        'No lucro operacional antigo a matéria-prima entrava como R$ 24,32 contra faturamento de R$ 334 mil. Aqui entra o custo total integral da carga.'
+        'O motor de cálculo e DRE não deduzem imposto por padrão, simplificando o resultado operacional puro.'
     },
     {
-      titulo: 'Divisor de caixas unificado',
+      titulo: 'Comissão de vendedor unificada no CIF',
       descricao:
-        'Havia divisão por 15,5 kg no cadastro e por 16 kg na revisão. Agora é um parâmetro único configurável (padrão 16 kg).'
-    },
-    {
-      titulo: 'Erro de referência corrigido',
-      descricao:
-        'A célula antiga do custo logístico por kg apontava para erro #REF!, que foi saneado no motor de cálculo atual.'
+        'A comissão vem 100% dos lançamentos reais de CIF de cada carga, sem digitação manual paralela.'
     }
   ];
+
+  // Lista de todas as cargas para exibir na tabela de parâmetros
+  const todasCargasExibicao = Array.from(
+    new Set([
+      ...cargasUnicas,
+      ...Object.keys(parametros.porCarga || {}).map(Number)
+    ])
+  ).sort((a, b) => a - b);
 
   return (
     <section className="space-y-6 animate-in fade-in duration-200">
@@ -114,7 +155,7 @@ export const ParametrosView: React.FC<ParametrosViewProps> = ({
             Parâmetros & Dados do Sistema
           </h2>
           <p className="text-[13.5px] text-[#4C666A] mt-1 max-w-[650px]">
-            Configure as regras globais de cálculo, exporte backups e gerencie a base de dados.
+            Configure as regras de cálculo por carga, gerencie backups e audite o sistema.
           </p>
         </div>
       </div>
@@ -136,18 +177,126 @@ export const ParametrosView: React.FC<ParametrosViewProps> = ({
         </div>
       )}
 
-      {/* Card 1: Parâmetros Globais de Cálculo */}
+      {/* Card 1: Parâmetros Por Carga */}
+      <div className="bg-white border border-[#D2E0E0] rounded-xl shadow-sm overflow-hidden">
+        <div className="px-5 py-4 border-b border-[#D2E0E0] bg-white flex justify-between items-center flex-wrap gap-3">
+          <div>
+            <h2 className="text-[12px] uppercase tracking-wider font-semibold text-[#7A9296]">
+              Parâmetros de Cálculo por Carga
+            </h2>
+            <p className="text-[12.5px] text-[#4C666A] mt-0.5">
+              Personalize o kg por caixa e enxarque para cada carga.
+            </p>
+          </div>
+
+          <form onSubmit={handleAdicionarCargaParam} className="flex items-center gap-2">
+            <input
+              type="number"
+              min="1"
+              placeholder="Nº Carga"
+              value={novaCargaNum}
+              onChange={(e) => setNovaCargaNum(e.target.value)}
+              className="w-24 p-1.5 border border-[#B6CBCB] rounded-lg text-xs font-mono bg-white focus:outline-none focus:border-[#0B6E78]"
+            />
+            <button
+              type="submit"
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-white bg-[#0B6E78] hover:bg-[#0B6E78]/90 rounded-lg shadow-sm"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Adicionar Carga</span>
+            </button>
+          </form>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-[13.5px] border-collapse">
+            <thead>
+              <tr className="bg-white border-b border-[#D2E0E0] text-[11px] uppercase tracking-wider text-[#7A9296]">
+                <th className="text-left py-3 px-4 font-semibold">Carga</th>
+                <th className="text-left py-3 px-4 font-semibold">Kg de Camarão / Caixa</th>
+                <th className="text-left py-3 px-4 font-semibold">Enxarque Padrão / Caixa (kg)</th>
+                <th className="text-right py-3 px-4 font-semibold">Status do Parâmetro</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#D2E0E0]">
+              {todasCargasExibicao.map((cNum) => {
+                const paramAtual = getParametrosDaCarga(cNum, parametros);
+                const isCustom = Boolean(parametros.porCarga && parametros.porCarga[cNum]);
+
+                return (
+                  <tr key={cNum} className="hover:bg-[#E9F0F0]/50 transition-colors">
+                    <td className="text-left py-3 px-4 font-semibold text-[#0F262A]">
+                      Carga {cNum}
+                    </td>
+                    <td className="py-2 px-4">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0.1"
+                          value={paramAtual.kgCaixa}
+                          onChange={(e) =>
+                            handleAtualizarParametroCarga(
+                              cNum,
+                              'kgCaixa',
+                              Number(e.target.value) || 16
+                            )
+                          }
+                          className="w-28 p-1.5 border border-[#B6CBCB] rounded-md text-sm font-mono bg-white focus:outline-none focus:border-[#0B6E78]"
+                        />
+                        <span className="text-xs text-[#7A9296]">kg</span>
+                      </div>
+                    </td>
+                    <td className="py-2 px-4">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          value={paramAtual.enxarqueKg}
+                          onChange={(e) =>
+                            handleAtualizarParametroCarga(
+                              cNum,
+                              'enxarqueKg',
+                              Number(e.target.value) || 0
+                            )
+                          }
+                          className="w-28 p-1.5 border border-[#B6CBCB] rounded-md text-sm font-mono bg-white focus:outline-none focus:border-[#0B6E78]"
+                        />
+                        <span className="text-xs text-[#7A9296]">kg/cx</span>
+                      </div>
+                    </td>
+                    <td className="text-right py-3 px-4">
+                      <span
+                        className={`inline-block text-[11px] px-2 py-0.5 rounded-full font-medium ${
+                          isCustom
+                            ? 'bg-[#DBEDEE] text-[#0B6E78]'
+                            : 'bg-[#E9F0F0] text-[#7A9296]'
+                        }`}
+                      >
+                        {isCustom ? 'Personalizado' : 'Padrão'}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Card 2: Padrão Global (Fallback) */}
       <div className="bg-white border border-[#D2E0E0] rounded-xl shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-[#D2E0E0] bg-white">
           <h2 className="text-[12px] uppercase tracking-wider font-semibold text-[#7A9296]">
-            Regras de Cálculo
+            Valores Padrão Globais (Para novas cargas)
           </h2>
         </div>
         <div className="p-5">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <div>
               <label className="block text-[11.5px] font-semibold text-[#7A9296] uppercase mb-1">
-                Kg de camarão por caixa
+                Kg de camarão por caixa (Padrão)
               </label>
               <input
                 type="number"
@@ -158,13 +307,13 @@ export const ParametrosView: React.FC<ParametrosViewProps> = ({
                 className="w-full p-2.5 border border-[#B6CBCB] rounded-lg text-sm bg-white font-mono focus:outline-none focus:border-[#0B6E78]"
               />
               <p className="text-[11.5px] text-[#7A9296] mt-1">
-                Padrão 16 kg. Define a quantidade de caixas geradas por lote.
+                Padrão 16 kg. Utilizado caso a carga não possua valor personalizado.
               </p>
             </div>
 
             <div>
               <label className="block text-[11.5px] font-semibold text-[#7A9296] uppercase mb-1">
-                Enxarque padrão por caixa (kg)
+                Enxarque padrão por caixa em kg (Padrão)
               </label>
               <input
                 type="number"
@@ -175,32 +324,14 @@ export const ParametrosView: React.FC<ParametrosViewProps> = ({
                 className="w-full p-2.5 border border-[#B6CBCB] rounded-lg text-sm bg-white font-mono focus:outline-none focus:border-[#0B6E78]"
               />
               <p className="text-[11.5px] text-[#7A9296] mt-1">
-                Padrão 1 kg por caixa adicionado ao peso na pesagem de venda.
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-[11.5px] font-semibold text-[#7A9296] uppercase mb-1">
-                Alíquota de imposto (%)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                placeholder="0"
-                value={parametros.aliquota || ''}
-                onChange={(e) => onAtualizarParametros({ aliquota: Number(e.target.value) || 0 })}
-                className="w-full p-2.5 border border-[#B6CBCB] rounded-lg text-sm bg-white font-mono focus:outline-none focus:border-[#0B6E78]"
-              />
-              <p className="text-[11.5px] text-[#7A9296] mt-1">
-                Incide sobre o faturamento bruto.
+                Padrão 1 kg por caixa adicionado ao peso na venda.
               </p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Card 2: Gestão de Dados e Backup */}
+      {/* Card 3: Gestão de Dados e Backup */}
       <div className="bg-white border border-[#D2E0E0] rounded-xl shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-[#D2E0E0] bg-white">
           <h2 className="text-[12px] uppercase tracking-wider font-semibold text-[#7A9296]">
@@ -282,11 +413,11 @@ export const ParametrosView: React.FC<ParametrosViewProps> = ({
         </div>
       </div>
 
-      {/* Card 3: Auditoria e Divergências da Planilha */}
+      {/* Card 4: Auditoria e Melhorias */}
       <div className="bg-white border border-[#D2E0E0] rounded-xl shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-[#D2E0E0] bg-white">
           <h2 className="text-[12px] uppercase tracking-wider font-semibold text-[#7A9296]">
-            Divergências Corrigidas em Relação à Planilha Excel Antiga
+            Regras Operacionais e Melhorias
           </h2>
         </div>
         <div className="p-5 space-y-3">
