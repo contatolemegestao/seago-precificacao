@@ -10,6 +10,11 @@ import { Lote, CifLancamento, Parametros } from './types';
 import {
   carregarDados,
   salvarDadosLocal,
+  salvarLoteDb,
+  removerLoteDb,
+  salvarCifDb,
+  removerCifDb,
+  salvarParametrosDb,
   sincronizarComSupabase,
   isSupabaseConfigured
 } from './lib/supabase';
@@ -51,18 +56,6 @@ export function App() {
     inicializar();
   }, []);
 
-  // Salva no localStorage ou Supabase sempre que houver alteração
-  const atualizarEstado = (
-    novosLotes: Lote[],
-    novosCif: CifLancamento[],
-    novosParams: Parametros
-  ) => {
-    setLotes(novosLotes);
-    setCif(novosCif);
-    setParametros(novosParams);
-    salvarDadosLocal(novosLotes, novosCif, novosParams);
-  };
-
   const handleSincronizar = async () => {
     setIsSyncing(true);
     await sincronizarComSupabase(lotes, cif, parametros);
@@ -79,6 +72,7 @@ export function App() {
       return `Já existe o Lote ${lote.lote} na Carga ${lote.carga}.`;
     }
 
+    // 1. Atualiza o estado da interface imediatamente
     let novosLotes: Lote[];
     if (index !== undefined && index >= 0) {
       novosLotes = lotes.map((item, idx) => (idx === index ? lote : item));
@@ -87,18 +81,45 @@ export function App() {
       setCargaSelecionada(lote.carga);
     }
 
-    atualizarEstado(novosLotes, cif, parametros);
-    if (isSupabaseConfigured) handleSincronizar();
+    setLotes(novosLotes);
+    salvarDadosLocal(novosLotes, cif, parametros);
+
+    // 2. Persiste diretamente no Supabase em segundo plano
+    if (isSupabaseConfigured) {
+      salvarLoteDb(lote)
+        .then((loteDb) => {
+          // Atualiza com o ID do banco
+          setLotes((atuais) =>
+            atuais.map((item) =>
+              Number(item.carga) === Number(lote.carga) && Number(item.lote) === Number(lote.lote)
+                ? { ...item, id: loteDb.id, carga_id: loteDb.carga_id }
+                : item
+            )
+          );
+        })
+        .catch((err) => {
+          console.error('Erro ao persistir lote no Supabase:', err);
+        });
+    }
   };
 
   const handleRemoverLote = (index: number) => {
+    const loteParaRemover = lotes[index];
     const novosLotes = lotes.filter((_, i) => i !== index);
-    atualizarEstado(novosLotes, cif, parametros);
-    if (isSupabaseConfigured) handleSincronizar();
+    
+    setLotes(novosLotes);
+    salvarDadosLocal(novosLotes, cif, parametros);
+
+    if (isSupabaseConfigured && loteParaRemover) {
+      removerLoteDb(loteParaRemover).catch((err) => {
+        console.error('Erro ao remover lote do Supabase:', err);
+      });
+    }
   };
 
   // Funções de CRUD: CIF
   const handleSalvarCif = (itemCif: CifLancamento, index?: number): string | void => {
+    // 1. Atualiza o estado da interface imediatamente
     let novosCif: CifLancamento[];
     if (index !== undefined && index >= 0) {
       novosCif = cif.map((item, idx) => (idx === index ? itemCif : item));
@@ -107,14 +128,52 @@ export function App() {
       setCargaSelecionada(itemCif.carga);
     }
 
-    atualizarEstado(lotes, novosCif, parametros);
-    if (isSupabaseConfigured) handleSincronizar();
+    setCif(novosCif);
+    salvarDadosLocal(lotes, novosCif, parametros);
+
+    // 2. Persiste diretamente no Supabase em segundo plano
+    if (isSupabaseConfigured) {
+      salvarCifDb(itemCif)
+        .then((cifDb) => {
+          // Atualiza com o ID do banco se for novo
+          if (!itemCif.id && cifDb.id) {
+            setCif((atuais) =>
+              atuais.map((c, i) =>
+                i === (index ?? atuais.length - 1) ? { ...c, id: cifDb.id, carga_id: cifDb.carga_id } : c
+              )
+            );
+          }
+        })
+        .catch((err) => {
+          console.error('Erro ao persistir CIF no Supabase:', err);
+        });
+    }
   };
 
   const handleRemoverCif = (index: number) => {
+    const cifParaRemover = cif[index];
     const novosCif = cif.filter((_, i) => i !== index);
-    atualizarEstado(lotes, novosCif, parametros);
-    if (isSupabaseConfigured) handleSincronizar();
+
+    setCif(novosCif);
+    salvarDadosLocal(lotes, novosCif, parametros);
+
+    if (isSupabaseConfigured && cifParaRemover) {
+      removerCifDb(cifParaRemover).catch((err) => {
+        console.error('Erro ao remover CIF do Supabase:', err);
+      });
+    }
+  };
+
+  const handleAtualizarParametros = (novos: Partial<Parametros>) => {
+    const atualizados: Parametros = { ...parametros, ...novos };
+    setParametros(atualizados);
+    salvarDadosLocal(lotes, cif, atualizados);
+
+    if (isSupabaseConfigured) {
+      salvarParametrosDb(atualizados).catch((err) => {
+        console.error('Erro ao salvar parâmetros no Supabase:', err);
+      });
+    }
   };
 
   // Carga ativa para novos registros
@@ -185,28 +244,30 @@ export function App() {
         {activeTab === 'param' && (
           <ParametrosView
             parametros={parametros}
-            onAtualizarParametros={(novos) => {
-              const atualizados = { ...parametros, ...novos };
-              atualizarEstado(lotes, cif, atualizados);
-              if (isSupabaseConfigured) handleSincronizar();
-            }}
+            onAtualizarParametros={handleAtualizarParametros}
             lotes={lotes}
             cif={cif}
             onImportarDados={(dados) => {
               const p = dados.parametros || parametros;
-              atualizarEstado(dados.lotes, dados.cif, p);
-              if (isSupabaseConfigured) handleSincronizar();
+              setLotes(dados.lotes);
+              setCif(dados.cif);
+              setParametros(p);
+              salvarDadosLocal(dados.lotes, dados.cif, p);
+              if (isSupabaseConfigured) sincronizarComSupabase(dados.lotes, dados.cif, p);
             }}
             onRestaurarOriginais={() => {
-              atualizarEstado(DADOS_INICIAIS.lotes, DADOS_INICIAIS.cif, PARAMETROS_PADRAO);
-              if (isSupabaseConfigured) handleSincronizar();
+              setLotes(DADOS_INICIAIS.lotes);
+              setCif(DADOS_INICIAIS.cif);
+              setParametros(PARAMETROS_PADRAO);
+              salvarDadosLocal(DADOS_INICIAIS.lotes, DADOS_INICIAIS.cif, PARAMETROS_PADRAO);
+              if (isSupabaseConfigured) sincronizarComSupabase(DADOS_INICIAIS.lotes, DADOS_INICIAIS.cif, PARAMETROS_PADRAO);
             }}
           />
         )}
       </main>
 
       <footer className="mt-12 py-5 border-t border-[#D2E0E0] text-center text-xs text-[#7A9296]">
-        SeaGO · Calculadora de Operação e Precificação · Dados auditados e recalculados pelo motor de regras
+        SeaGO · Calculadora de Operação e Precificação · Dados sincronizados em tempo real com o banco de dados
       </footer>
 
       {/* Modais */}
