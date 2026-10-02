@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Header } from './components/Header';
 import { RevisaoView } from './components/RevisaoView';
 import { MateriaPrimaView } from './components/MateriaPrimaView';
@@ -16,7 +16,8 @@ import {
   removerCifDb,
   salvarParametrosDb,
   sincronizarComSupabase,
-  isSupabaseConfigured
+  isSupabaseConfigured,
+  supabase
 } from './lib/supabase';
 import { PARAMETROS_PADRAO, DADOS_INICIAIS } from './lib/mockData';
 import { getCargas } from './lib/calculations';
@@ -44,8 +45,20 @@ export function App() {
     setToast({ mensagem, tipo });
     setTimeout(() => {
       setToast(null);
-    }, 4000);
+    }, 3500);
   };
+
+  const recarregarDadosSilencioso = useCallback(async () => {
+    try {
+      const res = await carregarDados();
+      setLotes(res.lotes);
+      setCif(res.cif);
+      setParametros(res.parametros);
+      setFonte(res.fonte);
+    } catch (e) {
+      console.warn('Erro ao atualizar dados em tempo real:', e);
+    }
+  }, []);
 
   useEffect(() => {
     async function inicializar() {
@@ -58,27 +71,60 @@ export function App() {
 
       const listaCargas = getCargas(res.lotes, res.cif);
       if (listaCargas.length > 0) {
-        setCargaSelecionada(listaCargas[listaCargas.length - 1]); // Seleciona a carga mais recente inicialmente
+        setCargaSelecionada(listaCargas[listaCargas.length - 1]);
       }
       setCarregando(false);
     }
     inicializar();
-  }, []);
 
-  const handleSincronizar = async () => {
-    setIsSyncing(true);
-    const res = await sincronizarComSupabase(lotes, cif, parametros);
-    setIsSyncing(false);
-    if (res.success) {
-      mostrarToast('Sincronização com o Supabase concluída com sucesso!');
-    } else {
-      mostrarToast(res.message, 'erro');
+    // Atualiza automaticamente quando a janela ganha foco (ex: trocar de aba ou voltar pro app)
+    const onFocus = () => {
+      recarregarDadosSilencioso();
+    };
+    window.addEventListener('focus', onFocus);
+
+    // Escuta alterações em tempo real no Supabase (Realtime)
+    let channel: any = null;
+    if (isSupabaseConfigured && supabase) {
+      try {
+        channel = supabase
+          .channel('schema-db-changes')
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'lotes' },
+            () => recarregarDadosSilencioso()
+          )
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'cif_lancamentos' },
+            () => recarregarDadosSilencioso()
+          )
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'cargas' },
+            () => recarregarDadosSilencioso()
+          )
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'parametros' },
+            () => recarregarDadosSilencioso()
+          )
+          .subscribe();
+      } catch (err) {
+        console.warn('Realtime subscription:', err);
+      }
     }
-  };
+
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      if (channel && supabase) {
+        supabase.removeChannel(channel);
+      }
+    };
+  }, [recarregarDadosSilencioso]);
 
   // Funções de CRUD: Lotes
   const handleSalvarLote = async (lote: Lote, index?: number): Promise<string | void> => {
-    // Validação de colisão de lote na mesma carga
     const colide = lotes.some(
       (x, i) => i !== index && Number(x.carga) === Number(lote.carga) && Number(x.lote) === Number(lote.lote)
     );
@@ -86,13 +132,15 @@ export function App() {
       return `Já existe o Lote ${lote.lote} na Carga ${lote.carga}.`;
     }
 
+    setIsSyncing(true);
     let loteSalvo = lote;
     if (isSupabaseConfigured) {
       try {
         loteSalvo = await salvarLoteDb(lote);
       } catch (err: any) {
+        setIsSyncing(false);
         console.error('Erro ao salvar lote no Supabase:', err);
-        return 'Erro ao gravar no banco de dados: ' + (err.message || 'Falha de conexão');
+        return 'Erro ao gravar no banco: ' + (err.message || 'Falha de conexão com a nuvem');
       }
     }
 
@@ -106,11 +154,13 @@ export function App() {
 
     setLotes(novosLotes);
     salvarDadosLocal(novosLotes, cif, parametros);
-    mostrarToast(`Lote ${loteSalvo.lote} da Carga ${loteSalvo.carga} salvo com sucesso!`);
+    setIsSyncing(false);
+    mostrarToast(`Lote ${loteSalvo.lote} da Carga ${loteSalvo.carga} salvo na nuvem!`);
   };
 
   const handleRemoverLote = async (index: number): Promise<void> => {
     const loteParaRemover = lotes[index];
+    setIsSyncing(true);
     if (isSupabaseConfigured && loteParaRemover) {
       try {
         await removerLoteDb(loteParaRemover);
@@ -123,18 +173,21 @@ export function App() {
     const novosLotes = lotes.filter((_, i) => i !== index);
     setLotes(novosLotes);
     salvarDadosLocal(novosLotes, cif, parametros);
-    mostrarToast('Lote removido com sucesso!');
+    setIsSyncing(false);
+    mostrarToast('Lote excluído da nuvem!');
   };
 
   // Funções de CRUD: CIF
   const handleSalvarCif = async (itemCif: CifLancamento, index?: number): Promise<string | void> => {
+    setIsSyncing(true);
     let cifSalvo = itemCif;
     if (isSupabaseConfigured) {
       try {
         cifSalvo = await salvarCifDb(itemCif);
       } catch (err: any) {
+        setIsSyncing(false);
         console.error('Erro ao salvar CIF no Supabase:', err);
-        return 'Erro ao gravar lançamento no banco: ' + (err.message || 'Falha de conexão');
+        return 'Erro ao gravar lançamento no banco: ' + (err.message || 'Falha de conexão com a nuvem');
       }
     }
 
@@ -148,11 +201,13 @@ export function App() {
 
     setCif(novosCif);
     salvarDadosLocal(lotes, novosCif, parametros);
-    mostrarToast(`Lançamento "${cifSalvo.tipo}" salvo com sucesso!`);
+    setIsSyncing(false);
+    mostrarToast(`Lançamento "${cifSalvo.tipo}" salvo na nuvem!`);
   };
 
   const handleRemoverCif = async (index: number): Promise<void> => {
     const cifParaRemover = cif[index];
+    setIsSyncing(true);
     if (isSupabaseConfigured && cifParaRemover) {
       try {
         await removerCifDb(cifParaRemover);
@@ -165,7 +220,8 @@ export function App() {
     const novosCif = cif.filter((_, i) => i !== index);
     setCif(novosCif);
     salvarDadosLocal(lotes, novosCif, parametros);
-    mostrarToast('Lançamento removido com sucesso!');
+    setIsSyncing(false);
+    mostrarToast('Lançamento excluído da nuvem!');
   };
 
   const handleAtualizarParametros = async (novos: Partial<Parametros>) => {
@@ -174,15 +230,15 @@ export function App() {
     salvarDadosLocal(lotes, cif, atualizados);
 
     if (isSupabaseConfigured) {
+      setIsSyncing(true);
       try {
         await salvarParametrosDb(atualizados);
-        mostrarToast('Parâmetros salvos no banco com sucesso!');
+        mostrarToast('Parâmetros atualizados na nuvem!');
       } catch (err: any) {
         console.error('Erro ao salvar parâmetros no Supabase:', err);
-        mostrarToast('Aviso: Parâmetros salvos localmente (banco pendente)', 'erro');
+      } finally {
+        setIsSyncing(false);
       }
-    } else {
-      mostrarToast('Parâmetros atualizados localmente!');
     }
   };
 
@@ -195,7 +251,7 @@ export function App() {
       <div className="min-h-screen bg-[#F2F6F6] flex items-center justify-center text-[#0F262A]">
         <div className="flex flex-col items-center gap-3">
           <div className="w-8 h-8 border-3 border-[#0B6E78] border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm font-medium text-[#4C666A]">Carregando calculadora SeaGO...</p>
+          <p className="text-sm font-medium text-[#4C666A]">Carregando dados da SeaGO em tempo real...</p>
         </div>
       </div>
     );
@@ -227,7 +283,6 @@ export function App() {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         fonte={fonte}
-        onSync={handleSincronizar}
         isSyncing={isSyncing}
       />
 
@@ -303,7 +358,7 @@ export function App() {
       </main>
 
       <footer className="mt-12 py-5 border-t border-[#D2E0E0] text-center text-xs text-[#7A9296]">
-        SeaGO · Calculadora de Operação e Precificação · Dados sincronizados em tempo real com o banco de dados
+        SeaGO · Calculadora de Operação e Precificação · Dados sincronizados automaticamente em tempo real
       </footer>
 
       {/* Modais */}

@@ -1,12 +1,11 @@
 import React from 'react';
-import { Database, ShieldCheck, RefreshCw } from 'lucide-react';
+import { Database, ShieldCheck, Loader2 } from 'lucide-react';
 import { isSupabaseConfigured } from '../lib/supabase';
 
 interface HeaderProps {
   activeTab: 'revisao' | 'mp' | 'cif' | 'param';
   setActiveTab: (tab: 'revisao' | 'mp' | 'cif' | 'param') => void;
   fonte: 'supabase' | 'local';
-  onSync?: () => void;
   isSyncing?: boolean;
 }
 
@@ -14,7 +13,6 @@ export const Header: React.FC<HeaderProps> = ({
   activeTab,
   setActiveTab,
   fonte,
-  onSync,
   isSyncing
 }) => {
   return (
@@ -41,28 +39,22 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
 
           <div className="flex items-center gap-3">
-            {isSupabaseConfigured ? (
+            {isSyncing ? (
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-[#DBEDEE] text-[#0B6E78] border border-[#0B6E78]/30 animate-pulse">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-[#0B6E78]" />
+                <span>Salvando na nuvem...</span>
+              </div>
+            ) : isSupabaseConfigured ? (
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-[#DBEDEE] text-[#0B6E78] border border-[#0B6E78]/30">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
                 <Database className="w-3.5 h-3.5 text-[#0B6E78]" />
-                <span>Supabase Conectado</span>
+                <span>Online · Nuvem Ativa</span>
               </div>
             ) : (
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200" title="Configure suas variáveis no .env ou Vercel para sincronizar online">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200" title="Modo local">
                 <ShieldCheck className="w-3.5 h-3.5 text-amber-600" />
-                <span>Armazenamento Local (Offline)</span>
+                <span>Armazenamento Local</span>
               </div>
-            )}
-
-            {onSync && isSupabaseConfigured && (
-              <button
-                onClick={onSync}
-                disabled={isSyncing}
-                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-[#4C666A] hover:text-[#0B6E78] border border-[#D2E0E0] hover:border-[#0B6E78] rounded-md transition-all"
-                title="Sincronizar com banco de dados"
-              >
-                <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
-                <span>Sincronizar</span>
-              </button>
             )}
           </div>
         </div>
