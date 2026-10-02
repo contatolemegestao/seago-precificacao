@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS public.parametros (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     kg_caixa NUMERIC(10,2) NOT NULL DEFAULT 16.0,
     enxarque_kg NUMERIC(10,2) NOT NULL DEFAULT 1.0,
-    aliquota_imposto NUMERIC(5,2) NOT NULL DEFAULT 0.0,
+    por_carga JSONB DEFAULT '{}'::jsonb,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 

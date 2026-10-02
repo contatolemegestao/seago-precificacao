@@ -17,32 +17,36 @@ export const supabase = isSupabaseConfigured
 
 const STORAGE_KEY = 'seago-dados-v2';
 
-// Garante que a carga existe no Supabase e retorna seu ID
-async function obterOuCriarCargaId(numeroCarga: number, dataOperacao?: string): Promise<string> {
+// Garante que a carga existe no Supabase e retorna seu ID atualizado
+export async function obterOuCriarCargaId(numeroCarga: number, dataOperacao?: string): Promise<string> {
   if (!supabase) throw new Error('Supabase não configurado');
 
-  const { data: cargaExistente } = await supabase
+  const { data: cargaExistente, error: errBusca } = await supabase
     .from('cargas')
     .select('id')
-    .eq('numero', numeroCarga)
+    .eq('numero', Number(numeroCarga))
     .maybeSingle();
+
+  if (errBusca) {
+    console.error('Erro ao buscar carga no Supabase:', errBusca);
+  }
 
   if (cargaExistente?.id) {
     return cargaExistente.id;
   }
 
-  const { data: novaCarga, error } = await supabase
+  const { data: novaCarga, error: errInsert } = await supabase
     .from('cargas')
     .insert({
-      numero: numeroCarga,
+      numero: Number(numeroCarga),
       data_operacao: dataOperacao || new Date().toISOString().slice(0, 10),
       status: 'fechada'
     })
     .select('id')
     .single();
 
-  if (error || !novaCarga) {
-    throw new Error('Erro ao criar carga no Supabase: ' + error?.message);
+  if (errInsert || !novaCarga) {
+    throw new Error('Erro ao criar carga no Supabase: ' + (errInsert?.message || 'Carga não criada'));
   }
 
   return novaCarga.id;
@@ -57,54 +61,87 @@ export async function carregarDados(): Promise<{
   if (isSupabaseConfigured && supabase) {
     try {
       // 1. Carrega parâmetros
-      const { data: paramData } = await supabase.from('parametros').select('*').limit(1).maybeSingle();
+      const { data: paramData, error: errParam } = await supabase
+        .from('parametros')
+        .select('*')
+        .limit(1)
+        .maybeSingle();
       
-      // 2. Carrega cargas para mapeamento de ID -> número
-      const { data: cargasData } = await supabase.from('cargas').select('*');
-      const cargaMap = new Map<string, number>();
-      cargasData?.forEach(c => cargaMap.set(c.id, c.numero));
+      if (errParam) console.warn('Aviso ao ler parâmetros do Supabase:', errParam);
 
-      // 3. Carrega lotes
-      const { data: lotesData } = await supabase.from('lotes').select('*');
+      // 2. Carrega cargas para mapeamento de ID -> número
+      const { data: cargasData, error: errCargas } = await supabase
+        .from('cargas')
+        .select('*')
+        .order('numero', { ascending: true });
+      
+      if (errCargas) console.warn('Aviso ao ler cargas do Supabase:', errCargas);
+
+      const cargaMap = new Map<string, number>();
+      cargasData?.forEach(c => cargaMap.set(c.id, Number(c.numero)));
+
+      // 3. Carrega lotes ordenados
+      const { data: lotesData, error: errLotes } = await supabase
+        .from('lotes')
+        .select('*')
+        .order('data', { ascending: false })
+        .order('numero_lote', { ascending: true });
+
+      if (errLotes) console.warn('Aviso ao ler lotes do Supabase:', errLotes);
+
       const lotes: Lote[] = (lotesData || []).map(l => ({
         id: l.id,
         carga_id: l.carga_id,
-        carga: cargaMap.get(l.carga_id) || 1,
-        lote: l.numero_lote,
-        data: l.data,
+        carga: cargaMap.get(l.carga_id) ?? 1,
+        lote: Number(l.numero_lote),
+        data: l.data || new Date().toISOString().slice(0, 10),
         fornecedor: l.fornecedor || '',
         classificacao: l.classificacao || '',
-        gr_inicial: l.gr_inicial,
-        gr_final: l.gr_final,
-        valor_compra_kg: Number(l.valor_compra_kg),
-        qtd_comprada: Number(l.qtd_comprada),
+        gr_inicial: l.gr_inicial ? Number(l.gr_inicial) : null,
+        gr_final: l.gr_final ? Number(l.gr_final) : null,
+        valor_compra_kg: Number(l.valor_compra_kg) || 0,
+        qtd_comprada: Number(l.qtd_comprada) || 0,
         qtd_final: l.qtd_final_medida ? Number(l.qtd_final_medida) : null,
-        valor_venda_kg: Number(l.valor_venda_kg),
+        valor_venda_kg: Number(l.valor_venda_kg) || 0,
       }));
 
-      // 4. Carrega CIF
-      const { data: cifData } = await supabase.from('cif_lancamentos').select('*');
+      // 4. Carrega CIF ordenados
+      const { data: cifData, error: errCif } = await supabase
+        .from('cif_lancamentos')
+        .select('*')
+        .order('data', { ascending: false });
+
+      if (errCif) console.warn('Aviso ao ler CIF do Supabase:', errCif);
+
       const cif: CifLancamento[] = (cifData || []).map(c => ({
         id: c.id,
         carga_id: c.carga_id,
-        carga: cargaMap.get(c.carga_id) || 1,
-        data: c.data,
-        tipo: c.tipo_custo,
-        qtd: Number(c.qtd),
-        valor: Number(c.valor_unitario),
+        carga: cargaMap.get(c.carga_id) ?? 1,
+        data: c.data || new Date().toISOString().slice(0, 10),
+        tipo: c.tipo_custo || '',
+        qtd: Number(c.qtd) || 0,
+        valor: Number(c.valor_unitario) || 0,
       }));
 
-      // Tenta recuperar porCarga do localStorage caso exista
-      let porCargaSalvo = {};
-      try {
-        const rawLocal = localStorage.getItem(STORAGE_KEY);
-        if (rawLocal) {
-          const parsed = JSON.parse(rawLocal);
-          if (parsed.parametros?.porCarga) {
-            porCargaSalvo = parsed.parametros.porCarga;
+      // Tenta recuperar porCarga do banco (se existir coluna por_carga) ou do localStorage
+      let porCargaSalvo: Record<number, { kgCaixa: number; enxarqueKg: number }> = {};
+      if (paramData && (paramData as any).por_carga) {
+        try {
+          porCargaSalvo = typeof (paramData as any).por_carga === 'string'
+            ? JSON.parse((paramData as any).por_carga)
+            : (paramData as any).por_carga;
+        } catch (e) {}
+      } else {
+        try {
+          const rawLocal = localStorage.getItem(STORAGE_KEY);
+          if (rawLocal) {
+            const parsed = JSON.parse(rawLocal);
+            if (parsed.parametros?.porCarga) {
+              porCargaSalvo = parsed.parametros.porCarga;
+            }
           }
-        }
-      } catch (e) {}
+        } catch (e) {}
+      }
 
       const parametros: Parametros = paramData ? {
         id: paramData.id,
@@ -112,9 +149,11 @@ export async function carregarDados(): Promise<{
         enxarqueKg: Number(paramData.enxarque_kg) ?? 1,
         porCarga: porCargaSalvo,
         atualizadoEm: paramData.updated_at
-      } : PARAMETROS_PADRAO;
+      } : { ...PARAMETROS_PADRAO, porCarga: porCargaSalvo };
 
       if (lotes.length > 0 || cif.length > 0) {
+        // Atualiza cache local de segurança
+        salvarDadosLocal(lotes, cif, parametros);
         return { lotes, cif, parametros, fonte: 'supabase' };
       }
     } catch (err) {
@@ -153,35 +192,39 @@ export function salvarDadosLocal(
   cif: CifLancamento[],
   parametros: Parametros
 ): void {
-  const payload = {
-    lotes,
-    cif,
-    parametros: {
-      ...parametros,
-      atualizadoEm: new Date().toISOString().slice(0, 10)
-    }
-  };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  try {
+    const payload = {
+      lotes,
+      cif,
+      parametros: {
+        ...parametros,
+        atualizadoEm: new Date().toISOString().slice(0, 10)
+      }
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  } catch (e) {
+    console.error('Erro ao salvar local:', e);
+  }
 }
 
-// Salvar / Atualizar Lote diretamente no Supabase
+// Salvar / Atualizar Lote diretamente no Supabase com validação e retorno
 export async function salvarLoteDb(lote: Lote): Promise<Lote> {
   if (!isSupabaseConfigured || !supabase) return lote;
 
-  const cargaId = lote.carga_id || (await obterOuCriarCargaId(lote.carga, lote.data));
+  const cargaId = await obterOuCriarCargaId(Number(lote.carga), lote.data);
 
   const payload = {
     carga_id: cargaId,
-    numero_lote: lote.lote,
+    numero_lote: Number(lote.lote),
     data: lote.data,
-    fornecedor: lote.fornecedor,
-    classificacao: lote.classificacao,
-    gr_inicial: lote.gr_inicial,
-    gr_final: lote.gr_final,
-    valor_compra_kg: lote.valor_compra_kg,
-    qtd_comprada: lote.qtd_comprada,
-    qtd_final_medida: lote.qtd_final,
-    valor_venda_kg: lote.valor_venda_kg
+    fornecedor: lote.fornecedor || '',
+    classificacao: lote.classificacao || '',
+    gr_inicial: lote.gr_inicial ? Number(lote.gr_inicial) : null,
+    gr_final: lote.gr_final ? Number(lote.gr_final) : null,
+    valor_compra_kg: Number(lote.valor_compra_kg) || 0,
+    qtd_comprada: Number(lote.qtd_comprada) || 0,
+    qtd_final_medida: lote.qtd_final ? Number(lote.qtd_final) : null,
+    valor_venda_kg: Number(lote.valor_venda_kg) || 0
   };
 
   if (lote.id) {
@@ -192,7 +235,17 @@ export async function salvarLoteDb(lote: Lote): Promise<Lote> {
       .select('id, carga_id')
       .single();
 
-    if (error) throw new Error('Erro ao atualizar lote: ' + error.message);
+    if (error) {
+      console.error('Erro ao fazer update de lote, tentando upsert:', error);
+      // Fallback para upsert se o ID não foi encontrado
+      const { data: upsertData, error: errUpsert } = await supabase
+        .from('lotes')
+        .upsert(payload, { onConflict: 'carga_id,numero_lote' })
+        .select('id, carga_id')
+        .single();
+      if (errUpsert) throw new Error('Erro ao salvar lote no banco: ' + errUpsert.message);
+      return { ...lote, id: upsertData.id, carga_id: upsertData.carga_id };
+    }
     return { ...lote, id: data.id, carga_id: data.carga_id };
   } else {
     const { data, error } = await supabase
@@ -201,7 +254,7 @@ export async function salvarLoteDb(lote: Lote): Promise<Lote> {
       .select('id, carga_id')
       .single();
 
-    if (error) throw new Error('Erro ao inserir lote: ' + error.message);
+    if (error) throw new Error('Erro ao inserir lote no banco: ' + error.message);
     return { ...lote, id: data.id, carga_id: data.carga_id };
   }
 }
@@ -211,24 +264,31 @@ export async function removerLoteDb(lote: Lote): Promise<void> {
   if (!isSupabaseConfigured || !supabase) return;
 
   if (lote.id) {
-    await supabase.from('lotes').delete().eq('id', lote.id);
-  } else if (lote.carga_id) {
-    await supabase.from('lotes').delete().eq('carga_id', lote.carga_id).eq('numero_lote', lote.lote);
+    const { error } = await supabase.from('lotes').delete().eq('id', lote.id);
+    if (error) console.error('Erro ao excluir lote por ID:', error);
+  } else {
+    const cargaId = await obterOuCriarCargaId(Number(lote.carga));
+    const { error } = await supabase
+      .from('lotes')
+      .delete()
+      .eq('carga_id', cargaId)
+      .eq('numero_lote', Number(lote.lote));
+    if (error) console.error('Erro ao excluir lote por carga/lote:', error);
   }
 }
 
-// Salvar / Atualizar CIF diretamente no Supabase
+// Salvar / Atualizar CIF diretamente no Supabase com validação e retorno
 export async function salvarCifDb(cifItem: CifLancamento): Promise<CifLancamento> {
   if (!isSupabaseConfigured || !supabase) return cifItem;
 
-  const cargaId = cifItem.carga_id || (await obterOuCriarCargaId(cifItem.carga, cifItem.data));
+  const cargaId = await obterOuCriarCargaId(Number(cifItem.carga), cifItem.data);
 
   const payload = {
     carga_id: cargaId,
     data: cifItem.data,
     tipo_custo: cifItem.tipo,
-    qtd: cifItem.qtd,
-    valor_unitario: cifItem.valor
+    qtd: Number(cifItem.qtd) || 0,
+    valor_unitario: Number(cifItem.valor) || 0
   };
 
   if (cifItem.id) {
@@ -239,7 +299,16 @@ export async function salvarCifDb(cifItem: CifLancamento): Promise<CifLancamento
       .select('id, carga_id')
       .single();
 
-    if (error) throw new Error('Erro ao atualizar CIF: ' + error.message);
+    if (error) {
+      console.error('Erro ao atualizar CIF por ID, tentando inserção:', error);
+      const { data: insData, error: insErr } = await supabase
+        .from('cif_lancamentos')
+        .insert(payload)
+        .select('id, carga_id')
+        .single();
+      if (insErr) throw new Error('Erro ao salvar CIF: ' + insErr.message);
+      return { ...cifItem, id: insData.id, carga_id: insData.carga_id };
+    }
     return { ...cifItem, id: data.id, carga_id: data.carga_id };
   } else {
     const { data, error } = await supabase
@@ -248,7 +317,7 @@ export async function salvarCifDb(cifItem: CifLancamento): Promise<CifLancamento
       .select('id, carga_id')
       .single();
 
-    if (error) throw new Error('Erro ao inserir CIF: ' + error.message);
+    if (error) throw new Error('Erro ao inserir CIF no banco: ' + error.message);
     return { ...cifItem, id: data.id, carga_id: data.carga_id };
   }
 }
@@ -258,25 +327,49 @@ export async function removerCifDb(cifItem: CifLancamento): Promise<void> {
   if (!isSupabaseConfigured || !supabase) return;
 
   if (cifItem.id) {
-    await supabase.from('cif_lancamentos').delete().eq('id', cifItem.id);
+    const { error } = await supabase.from('cif_lancamentos').delete().eq('id', cifItem.id);
+    if (error) console.error('Erro ao excluir CIF por ID:', error);
+  } else {
+    const cargaId = await obterOuCriarCargaId(Number(cifItem.carga));
+    const { error } = await supabase
+      .from('cif_lancamentos')
+      .delete()
+      .eq('carga_id', cargaId)
+      .eq('tipo_custo', cifItem.tipo)
+      .eq('data', cifItem.data);
+    if (error) console.error('Erro ao excluir CIF por tipo/data:', error);
   }
 }
 
-// Salvar Parâmetros no Supabase
+// Salvar Parâmetros no Supabase (incluindo porCarga)
 export async function salvarParametrosDb(parametros: Parametros): Promise<void> {
   if (!isSupabaseConfigured || !supabase) return;
 
   const { data: p } = await supabase.from('parametros').select('id').limit(1).maybeSingle();
+  
+  const payloadComPorCarga: any = {
+    kg_caixa: Number(parametros.kgCaixa) || 16,
+    enxarque_kg: Number(parametros.enxarqueKg) ?? 1,
+    por_carga: parametros.porCarga || {}
+  };
+
+  const payloadSimples: any = {
+    kg_caixa: Number(parametros.kgCaixa) || 16,
+    enxarque_kg: Number(parametros.enxarqueKg) ?? 1
+  };
+
   if (p?.id) {
-    await supabase.from('parametros').update({
-      kg_caixa: parametros.kgCaixa,
-      enxarque_kg: parametros.enxarqueKg
-    }).eq('id', p.id);
+    // Tenta atualizar com por_carga
+    const { error } = await supabase.from('parametros').update(payloadComPorCarga).eq('id', p.id);
+    if (error) {
+      // Se der erro (ex: coluna por_carga ainda não adicionada), faz update simples
+      await supabase.from('parametros').update(payloadSimples).eq('id', p.id);
+    }
   } else {
-    await supabase.from('parametros').insert({
-      kg_caixa: parametros.kgCaixa,
-      enxarque_kg: parametros.enxarqueKg
-    });
+    const { error } = await supabase.from('parametros').insert(payloadComPorCarga);
+    if (error) {
+      await supabase.from('parametros').insert(payloadSimples);
+    }
   }
 }
 
@@ -296,8 +389,8 @@ export async function sincronizarComSupabase(
 
     // 2. Cargas
     const numerosCargas = Array.from(new Set([
-      ...lotes.map(l => l.carga),
-      ...cif.map(c => c.carga)
+      ...lotes.map(l => Number(l.carga)),
+      ...cif.map(c => Number(c.carga))
     ]));
 
     for (const num of numerosCargas) {

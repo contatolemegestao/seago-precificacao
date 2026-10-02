@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Lote, Parametros } from '../types';
 import { hoje, nf, brl0, getParametrosDaCarga } from '../lib/calculations';
-import { X, Trash2 } from 'lucide-react';
+import { X, Trash2, Loader2 } from 'lucide-react';
 
 interface ModalLoteProps {
   isOpen: boolean;
@@ -9,8 +9,8 @@ interface ModalLoteProps {
   loteParaEditar?: { lote: Lote; index: number } | null;
   cargaAtiva: number;
   parametros: Parametros;
-  onSalvar: (lote: Lote, index?: number) => string | void;
-  onRemover?: (index: number) => void;
+  onSalvar: (lote: Lote, index?: number) => Promise<string | void> | string | void;
+  onRemover?: (index: number) => Promise<void> | void;
 }
 
 export const ModalLote: React.FC<ModalLoteProps> = ({
@@ -37,6 +37,7 @@ export const ModalLote: React.FC<ModalLoteProps> = ({
   });
 
   const [erro, setErro] = useState<string | null>(null);
+  const [salvando, setSalvando] = useState(false);
   const [confirmandoRemocao, setConfirmandoRemocao] = useState(false);
 
   useEffect(() => {
@@ -67,6 +68,7 @@ export const ModalLote: React.FC<ModalLoteProps> = ({
       });
     }
     setErro(null);
+    setSalvando(false);
     setConfirmandoRemocao(false);
   }, [loteParaEditar, cargaAtiva, isOpen]);
 
@@ -85,7 +87,7 @@ export const ModalLote: React.FC<ModalLoteProps> = ({
   const custoMp = pc * qc;
   const faturamento = pv * qVend;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.carga) {
       setErro('Informe o número da carga.');
@@ -110,11 +112,36 @@ export const ModalLote: React.FC<ModalLoteProps> = ({
       valor_venda_kg: Number(formData.valor_venda_kg) || 0
     };
 
-    const erroRetorno = onSalvar(reg, loteParaEditar?.index);
-    if (erroRetorno) {
-      setErro(erroRetorno);
-    } else {
-      onClose();
+    setSalvando(true);
+    setErro(null);
+    try {
+      const erroRetorno = await onSalvar(reg, loteParaEditar?.index);
+      if (erroRetorno) {
+        setErro(erroRetorno);
+        setSalvando(false);
+      } else {
+        onClose();
+      }
+    } catch (err: any) {
+      setErro(err.message || 'Erro ao salvar lote no banco de dados.');
+      setSalvando(false);
+    }
+  };
+
+  const handleRemover = async () => {
+    if (!confirmandoRemocao) {
+      setConfirmandoRemocao(true);
+      return;
+    }
+    if (loteParaEditar && onRemover) {
+      setSalvando(true);
+      try {
+        await onRemover(loteParaEditar.index);
+        onClose();
+      } catch (err: any) {
+        setErro('Erro ao remover: ' + err.message);
+        setSalvando(false);
+      }
     }
   };
 
@@ -132,6 +159,7 @@ export const ModalLote: React.FC<ModalLoteProps> = ({
           </div>
           <button
             onClick={onClose}
+            disabled={salvando}
             className="text-[#7A9296] hover:text-[#0F262A] p-1.5 rounded-lg hover:bg-[#E9F0F0] transition-colors"
           >
             <X className="w-5 h-5" />
@@ -329,7 +357,7 @@ export const ModalLote: React.FC<ModalLoteProps> = ({
           </div>
 
           {erro && (
-            <div className="text-[#A9382A] text-xs font-medium bg-[#F6E1DE] p-2.5 rounded-lg">
+            <div className="text-[#A9382A] text-xs font-medium bg-[#F6E1DE] p-2.5 rounded-lg border border-[#A9382A]/20">
               {erro}
             </div>
           )}
@@ -338,14 +366,8 @@ export const ModalLote: React.FC<ModalLoteProps> = ({
             {!isNovo && onRemover && (
               <button
                 type="button"
-                onClick={() => {
-                  if (!confirmandoRemocao) {
-                    setConfirmandoRemocao(true);
-                    return;
-                  }
-                  if (loteParaEditar) onRemover(loteParaEditar.index);
-                  onClose();
-                }}
+                disabled={salvando}
+                onClick={handleRemover}
                 className={`inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold rounded-lg transition-colors ${
                   confirmandoRemocao
                     ? 'bg-[#A9382A] text-white hover:bg-red-700'
@@ -360,6 +382,7 @@ export const ModalLote: React.FC<ModalLoteProps> = ({
             <div className="flex items-center gap-2 ml-auto">
               <button
                 type="button"
+                disabled={salvando}
                 onClick={onClose}
                 className="px-4 py-2 text-sm font-medium text-[#4C666A] border border-[#B6CBCB] hover:bg-[#E9F0F0] rounded-lg transition-colors"
               >
@@ -367,9 +390,11 @@ export const ModalLote: React.FC<ModalLoteProps> = ({
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 text-sm font-semibold text-white bg-[#0B6E78] hover:bg-[#0B6E78]/90 rounded-lg shadow-sm transition-colors"
+                disabled={salvando}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-[#0B6E78] hover:bg-[#0B6E78]/90 disabled:opacity-50 rounded-lg shadow-sm transition-colors"
               >
-                Salvar Lote
+                {salvando && <Loader2 className="w-4 h-4 animate-spin" />}
+                <span>{salvando ? 'Salvando no banco...' : 'Salvar Lote'}</span>
               </button>
             </div>
           </div>

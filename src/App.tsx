@@ -20,6 +20,7 @@ import {
 } from './lib/supabase';
 import { PARAMETROS_PADRAO, DADOS_INICIAIS } from './lib/mockData';
 import { getCargas } from './lib/calculations';
+import { CheckCircle2, AlertCircle } from 'lucide-react';
 
 export function App() {
   const [activeTab, setActiveTab] = useState<'revisao' | 'mp' | 'cif' | 'param'>('revisao');
@@ -30,6 +31,7 @@ export function App() {
   const [fonte, setFonte] = useState<'supabase' | 'local'>('local');
   const [carregando, setCarregando] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [toast, setToast] = useState<{ mensagem: string; tipo: 'ok' | 'erro' } | null>(null);
 
   // Estados dos Modais
   const [modalLoteAberto, setModalLoteAberto] = useState(false);
@@ -37,6 +39,13 @@ export function App() {
 
   const [modalCifAberto, setModalCifAberto] = useState(false);
   const [cifParaEditar, setCifParaEditar] = useState<{ cif: CifLancamento; index: number } | null>(null);
+
+  const mostrarToast = (mensagem: string, tipo: 'ok' | 'erro' = 'ok') => {
+    setToast({ mensagem, tipo });
+    setTimeout(() => {
+      setToast(null);
+    }, 4000);
+  };
 
   useEffect(() => {
     async function inicializar() {
@@ -58,12 +67,17 @@ export function App() {
 
   const handleSincronizar = async () => {
     setIsSyncing(true);
-    await sincronizarComSupabase(lotes, cif, parametros);
+    const res = await sincronizarComSupabase(lotes, cif, parametros);
     setIsSyncing(false);
+    if (res.success) {
+      mostrarToast('Sincronização com o Supabase concluída com sucesso!');
+    } else {
+      mostrarToast(res.message, 'erro');
+    }
   };
 
   // Funções de CRUD: Lotes
-  const handleSalvarLote = (lote: Lote, index?: number): string | void => {
+  const handleSalvarLote = async (lote: Lote, index?: number): Promise<string | void> => {
     // Validação de colisão de lote na mesma carga
     const colide = lotes.some(
       (x, i) => i !== index && Number(x.carga) === Number(lote.carga) && Number(x.lote) === Number(lote.lote)
@@ -72,107 +86,103 @@ export function App() {
       return `Já existe o Lote ${lote.lote} na Carga ${lote.carga}.`;
     }
 
-    // 1. Atualiza o estado da interface imediatamente
+    let loteSalvo = lote;
+    if (isSupabaseConfigured) {
+      try {
+        loteSalvo = await salvarLoteDb(lote);
+      } catch (err: any) {
+        console.error('Erro ao salvar lote no Supabase:', err);
+        return 'Erro ao gravar no banco de dados: ' + (err.message || 'Falha de conexão');
+      }
+    }
+
     let novosLotes: Lote[];
     if (index !== undefined && index >= 0) {
-      novosLotes = lotes.map((item, idx) => (idx === index ? lote : item));
+      novosLotes = lotes.map((item, idx) => (idx === index ? loteSalvo : item));
     } else {
-      novosLotes = [...lotes, lote];
-      setCargaSelecionada(lote.carga);
+      novosLotes = [...lotes, loteSalvo];
+      setCargaSelecionada(loteSalvo.carga);
     }
 
     setLotes(novosLotes);
     salvarDadosLocal(novosLotes, cif, parametros);
-
-    // 2. Persiste diretamente no Supabase em segundo plano
-    if (isSupabaseConfigured) {
-      salvarLoteDb(lote)
-        .then((loteDb) => {
-          // Atualiza com o ID do banco
-          setLotes((atuais) =>
-            atuais.map((item) =>
-              Number(item.carga) === Number(lote.carga) && Number(item.lote) === Number(lote.lote)
-                ? { ...item, id: loteDb.id, carga_id: loteDb.carga_id }
-                : item
-            )
-          );
-        })
-        .catch((err) => {
-          console.error('Erro ao persistir lote no Supabase:', err);
-        });
-    }
+    mostrarToast(`Lote ${loteSalvo.lote} da Carga ${loteSalvo.carga} salvo com sucesso!`);
   };
 
-  const handleRemoverLote = (index: number) => {
+  const handleRemoverLote = async (index: number): Promise<void> => {
     const loteParaRemover = lotes[index];
+    if (isSupabaseConfigured && loteParaRemover) {
+      try {
+        await removerLoteDb(loteParaRemover);
+      } catch (err: any) {
+        console.error('Erro ao remover lote do Supabase:', err);
+        mostrarToast('Erro ao remover lote no banco: ' + err.message, 'erro');
+      }
+    }
+
     const novosLotes = lotes.filter((_, i) => i !== index);
-    
     setLotes(novosLotes);
     salvarDadosLocal(novosLotes, cif, parametros);
-
-    if (isSupabaseConfigured && loteParaRemover) {
-      removerLoteDb(loteParaRemover).catch((err) => {
-        console.error('Erro ao remover lote do Supabase:', err);
-      });
-    }
+    mostrarToast('Lote removido com sucesso!');
   };
 
   // Funções de CRUD: CIF
-  const handleSalvarCif = (itemCif: CifLancamento, index?: number): string | void => {
-    // 1. Atualiza o estado da interface imediatamente
+  const handleSalvarCif = async (itemCif: CifLancamento, index?: number): Promise<string | void> => {
+    let cifSalvo = itemCif;
+    if (isSupabaseConfigured) {
+      try {
+        cifSalvo = await salvarCifDb(itemCif);
+      } catch (err: any) {
+        console.error('Erro ao salvar CIF no Supabase:', err);
+        return 'Erro ao gravar lançamento no banco: ' + (err.message || 'Falha de conexão');
+      }
+    }
+
     let novosCif: CifLancamento[];
     if (index !== undefined && index >= 0) {
-      novosCif = cif.map((item, idx) => (idx === index ? itemCif : item));
+      novosCif = cif.map((item, idx) => (idx === index ? cifSalvo : item));
     } else {
-      novosCif = [...cif, itemCif];
-      setCargaSelecionada(itemCif.carga);
+      novosCif = [...cif, cifSalvo];
+      setCargaSelecionada(cifSalvo.carga);
     }
 
     setCif(novosCif);
     salvarDadosLocal(lotes, novosCif, parametros);
-
-    // 2. Persiste diretamente no Supabase em segundo plano
-    if (isSupabaseConfigured) {
-      salvarCifDb(itemCif)
-        .then((cifDb) => {
-          // Atualiza com o ID do banco se for novo
-          if (!itemCif.id && cifDb.id) {
-            setCif((atuais) =>
-              atuais.map((c, i) =>
-                i === (index ?? atuais.length - 1) ? { ...c, id: cifDb.id, carga_id: cifDb.carga_id } : c
-              )
-            );
-          }
-        })
-        .catch((err) => {
-          console.error('Erro ao persistir CIF no Supabase:', err);
-        });
-    }
+    mostrarToast(`Lançamento "${cifSalvo.tipo}" salvo com sucesso!`);
   };
 
-  const handleRemoverCif = (index: number) => {
+  const handleRemoverCif = async (index: number): Promise<void> => {
     const cifParaRemover = cif[index];
-    const novosCif = cif.filter((_, i) => i !== index);
+    if (isSupabaseConfigured && cifParaRemover) {
+      try {
+        await removerCifDb(cifParaRemover);
+      } catch (err: any) {
+        console.error('Erro ao remover CIF do Supabase:', err);
+        mostrarToast('Erro ao remover lançamento no banco: ' + err.message, 'erro');
+      }
+    }
 
+    const novosCif = cif.filter((_, i) => i !== index);
     setCif(novosCif);
     salvarDadosLocal(lotes, novosCif, parametros);
-
-    if (isSupabaseConfigured && cifParaRemover) {
-      removerCifDb(cifParaRemover).catch((err) => {
-        console.error('Erro ao remover CIF do Supabase:', err);
-      });
-    }
+    mostrarToast('Lançamento removido com sucesso!');
   };
 
-  const handleAtualizarParametros = (novos: Partial<Parametros>) => {
+  const handleAtualizarParametros = async (novos: Partial<Parametros>) => {
     const atualizados: Parametros = { ...parametros, ...novos };
     setParametros(atualizados);
     salvarDadosLocal(lotes, cif, atualizados);
 
     if (isSupabaseConfigured) {
-      salvarParametrosDb(atualizados).catch((err) => {
+      try {
+        await salvarParametrosDb(atualizados);
+        mostrarToast('Parâmetros salvos no banco com sucesso!');
+      } catch (err: any) {
         console.error('Erro ao salvar parâmetros no Supabase:', err);
-      });
+        mostrarToast('Aviso: Parâmetros salvos localmente (banco pendente)', 'erro');
+      }
+    } else {
+      mostrarToast('Parâmetros atualizados localmente!');
     }
   };
 
@@ -192,7 +202,27 @@ export function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F2F6F6] text-[#0F262A] flex flex-col selection:bg-[#DBEDEE] selection:text-[#0B6E78]">
+    <div className="min-h-screen bg-[#F2F6F6] text-[#0F262A] flex flex-col selection:bg-[#DBEDEE] selection:text-[#0B6E78] relative">
+      {/* Toast Notification */}
+      {toast && (
+        <div className="fixed top-5 right-5 z-50 animate-in slide-in-from-top-3 duration-200">
+          <div
+            className={`flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-lg border text-sm font-medium ${
+              toast.tipo === 'ok'
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                : 'bg-rose-50 text-rose-800 border-rose-300'
+            }`}
+          >
+            {toast.tipo === 'ok' ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-none" />
+            ) : (
+              <AlertCircle className="w-5 h-5 text-rose-600 flex-none" />
+            )}
+            <span>{toast.mensagem}</span>
+          </div>
+        </div>
+      )}
+
       <Header
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -247,20 +277,26 @@ export function App() {
             onAtualizarParametros={handleAtualizarParametros}
             lotes={lotes}
             cif={cif}
-            onImportarDados={(dados) => {
+            onImportarDados={async (dados) => {
               const p = dados.parametros || parametros;
               setLotes(dados.lotes);
               setCif(dados.cif);
               setParametros(p);
               salvarDadosLocal(dados.lotes, dados.cif, p);
-              if (isSupabaseConfigured) sincronizarComSupabase(dados.lotes, dados.cif, p);
+              if (isSupabaseConfigured) {
+                await sincronizarComSupabase(dados.lotes, dados.cif, p);
+              }
+              mostrarToast('Dados importados e salvos com sucesso!');
             }}
-            onRestaurarOriginais={() => {
+            onRestaurarOriginais={async () => {
               setLotes(DADOS_INICIAIS.lotes);
               setCif(DADOS_INICIAIS.cif);
               setParametros(PARAMETROS_PADRAO);
               salvarDadosLocal(DADOS_INICIAIS.lotes, DADOS_INICIAIS.cif, PARAMETROS_PADRAO);
-              if (isSupabaseConfigured) sincronizarComSupabase(DADOS_INICIAIS.lotes, DADOS_INICIAIS.cif, PARAMETROS_PADRAO);
+              if (isSupabaseConfigured) {
+                await sincronizarComSupabase(DADOS_INICIAIS.lotes, DADOS_INICIAIS.cif, PARAMETROS_PADRAO);
+              }
+              mostrarToast('Dados originais restaurados com sucesso!');
             }}
           />
         )}

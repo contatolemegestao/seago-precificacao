@@ -2,15 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { CifLancamento } from '../types';
 import { TIPOS_CIF } from '../lib/mockData';
 import { hoje, brl } from '../lib/calculations';
-import { X, Trash2 } from 'lucide-react';
+import { X, Trash2, Loader2 } from 'lucide-react';
 
 interface ModalCifProps {
   isOpen: boolean;
   onClose: () => void;
   cifParaEditar?: { cif: CifLancamento; index: number } | null;
   cargaAtiva: number;
-  onSalvar: (cif: CifLancamento, index?: number) => string | void;
-  onRemover?: (index: number) => void;
+  onSalvar: (cif: CifLancamento, index?: number) => Promise<string | void> | string | void;
+  onRemover?: (index: number) => Promise<void> | void;
 }
 
 export const ModalCif: React.FC<ModalCifProps> = ({
@@ -32,6 +32,7 @@ export const ModalCif: React.FC<ModalCifProps> = ({
   });
 
   const [erro, setErro] = useState<string | null>(null);
+  const [salvando, setSalvando] = useState(false);
   const [confirmandoRemocao, setConfirmandoRemocao] = useState(false);
 
   useEffect(() => {
@@ -54,6 +55,7 @@ export const ModalCif: React.FC<ModalCifProps> = ({
       });
     }
     setErro(null);
+    setSalvando(false);
     setConfirmandoRemocao(false);
   }, [cifParaEditar, cargaAtiva, isOpen]);
 
@@ -63,7 +65,7 @@ export const ModalCif: React.FC<ModalCifProps> = ({
   const valNum = Number(formData.valor) || 0;
   const custoTotal = qtdNum * valNum;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.carga) {
       setErro('Informe o número da carga.');
@@ -80,11 +82,36 @@ export const ModalCif: React.FC<ModalCifProps> = ({
       valor: Number(formData.valor) || 0
     };
 
-    const erroRetorno = onSalvar(reg, cifParaEditar?.index);
-    if (erroRetorno) {
-      setErro(erroRetorno);
-    } else {
-      onClose();
+    setSalvando(true);
+    setErro(null);
+    try {
+      const erroRetorno = await onSalvar(reg, cifParaEditar?.index);
+      if (erroRetorno) {
+        setErro(erroRetorno);
+        setSalvando(false);
+      } else {
+        onClose();
+      }
+    } catch (err: any) {
+      setErro(err.message || 'Erro ao salvar CIF no banco de dados.');
+      setSalvando(false);
+    }
+  };
+
+  const handleRemover = async () => {
+    if (!confirmandoRemocao) {
+      setConfirmandoRemocao(true);
+      return;
+    }
+    if (cifParaEditar && onRemover) {
+      setSalvando(true);
+      try {
+        await onRemover(cifParaEditar.index);
+        onClose();
+      } catch (err: any) {
+        setErro('Erro ao remover: ' + err.message);
+        setSalvando(false);
+      }
     }
   };
 
@@ -102,6 +129,7 @@ export const ModalCif: React.FC<ModalCifProps> = ({
           </div>
           <button
             onClick={onClose}
+            disabled={salvando}
             className="text-[#7A9296] hover:text-[#0F262A] p-1.5 rounded-lg hover:bg-[#E9F0F0] transition-colors"
           >
             <X className="w-5 h-5" />
@@ -212,7 +240,7 @@ export const ModalCif: React.FC<ModalCifProps> = ({
           </div>
 
           {erro && (
-            <div className="text-[#A9382A] text-xs font-medium bg-[#F6E1DE] p-2.5 rounded-lg">
+            <div className="text-[#A9382A] text-xs font-medium bg-[#F6E1DE] p-2.5 rounded-lg border border-[#A9382A]/20">
               {erro}
             </div>
           )}
@@ -221,14 +249,8 @@ export const ModalCif: React.FC<ModalCifProps> = ({
             {!isNovo && onRemover && (
               <button
                 type="button"
-                onClick={() => {
-                  if (!confirmandoRemocao) {
-                    setConfirmandoRemocao(true);
-                    return;
-                  }
-                  if (cifParaEditar) onRemover(cifParaEditar.index);
-                  onClose();
-                }}
+                disabled={salvando}
+                onClick={handleRemover}
                 className={`inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold rounded-lg transition-colors ${
                   confirmandoRemocao
                     ? 'bg-[#A9382A] text-white hover:bg-red-700'
@@ -243,6 +265,7 @@ export const ModalCif: React.FC<ModalCifProps> = ({
             <div className="flex items-center gap-2 ml-auto">
               <button
                 type="button"
+                disabled={salvando}
                 onClick={onClose}
                 className="px-4 py-2 text-sm font-medium text-[#4C666A] border border-[#B6CBCB] hover:bg-[#E9F0F0] rounded-lg transition-colors"
               >
@@ -250,9 +273,11 @@ export const ModalCif: React.FC<ModalCifProps> = ({
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 text-sm font-semibold text-white bg-[#0B6E78] hover:bg-[#0B6E78]/90 rounded-lg shadow-sm transition-colors"
+                disabled={salvando}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-[#0B6E78] hover:bg-[#0B6E78]/90 disabled:opacity-50 rounded-lg shadow-sm transition-colors"
               >
-                Salvar Lançamento
+                {salvando && <Loader2 className="w-4 h-4 animate-spin" />}
+                <span>{salvando ? 'Salvando no banco...' : 'Salvar Lançamento'}</span>
               </button>
             </div>
           </div>
